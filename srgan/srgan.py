@@ -10,17 +10,20 @@ Instrustion on running the script:
 """
 
 from __future__ import print_function, division
-import scipy
+from scipy.special import expit
 
+import keras.backend as K
 from keras.datasets import mnist
-from keras_contrib.layers.normalization import InstanceNormalization
-from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
+#from keras_contrib.layers.normalization import InstanceNormalization
+from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate, concatenate, Lambda
 from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add
 from keras.layers.advanced_activations import PReLU, LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.applications import VGG19
 from keras.models import Sequential, Model
+from keras.initializers import VarianceScaling
 from keras.optimizers import Adam
+from keras.callbacks import LearningRateScheduler, History, TensorBoard
 import datetime
 import matplotlib.pyplot as plt
 import sys
@@ -30,8 +33,33 @@ import os
 
 import keras.backend as K
 
+
+class SmallInitialization(VarianceScaling):
+    def __init__(self, scale=0.1):
+        super().__init__()
+        self.scale = scale
+
+    def __call__(self, shape, dtype=None):
+        return self.scale * super().__call__(shape, dtype)
+
+def d_rel_avg(x_r, x_f):
+    return K.sigmoid(x_r - K.mean(x_f))
+
+def rel_avg_loss(x_r, x_f):
+    return -K.mean(K.log(K.clip(d_rel_avg(x_r, x_f), K.epsilon(), 1-K.epsilon()))) - \
+           K.mean(K.log(K.clip(1 - d_rel_avg(x_f, x_r), K.epsilon(), 1-K.epsilon())))
+
+def d_loss(y_real, y_pred):
+    len = K.gather(K.shape(y_pred), 0)
+    x_r = K.gather(y_pred, K.arange(0, len // 2))
+    x_f = K.gather(y_pred, K.arange(start=len // 2, stop=len))
+    return rel_avg_loss(x_r, x_f)
+
+def g_loss(x_r, x_f):
+    return rel_avg_loss(x_f, x_r)
+
 class SRGAN():
-    def __init__(self):
+    def __init__(self, parent_dir):
         # Input shape
         self.channels = 3
         self.lr_height = 64                 # Low resolution height
@@ -42,7 +70,7 @@ class SRGAN():
         self.hr_shape = (self.hr_height, self.hr_width, self.channels)
 
         # Number of residual blocks in the generator
-        self.n_residual_blocks = 16
+        self.n_residual_blocks = 64
 
         optimizer = Adam(0.0002, 0.5)
 
@@ -56,7 +84,8 @@ class SRGAN():
 
         # Configure data loader
         self.dataset_name = 'img_align_celeba'
-        self.data_loader = DataLoader(dataset_name=self.dataset_name,
+        self.parent_dir = parent_dir
+        self.data_loader = DataLoader(dataset_name=self.dataset_name, parent_dir=self.parent_dir,
                                       img_res=(self.hr_height, self.hr_width))
 
         # Calculate output shape of D (PatchGAN)
@@ -69,13 +98,14 @@ class SRGAN():
 
         # Build and compile the discriminator
         self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='mse',
+        self.discriminator.summary()
+        self.discriminator.compile(loss=d_loss,
             optimizer=optimizer,
             metrics=['accuracy'])
 
         # Build the generator
         self.generator = self.build_generator()
-
+        self.generator.summary()
         # High res. and low res. images
         img_hr = Input(shape=self.hr_shape)
         img_lr = Input(shape=self.lr_shape)
@@ -92,9 +122,9 @@ class SRGAN():
         # Discriminator determines validity of generated high res. images
         validity = self.discriminator(fake_hr)
 
-        self.combined = Model([img_lr, img_hr], [validity, fake_features])
-        self.combined.compile(loss=['binary_crossentropy', 'mse'],
-                              loss_weights=[1e-3, 1],
+        self.combined = Model([img_lr, img_hr], [validity, fake_features, validity, fake_hr])
+        self.combined.compile(loss=['binary_crossentropy', 'mse', g_loss, 'mae'],
+                              loss_weights=[1e-3, 1, 5e-3, 1e-2],
                               optimizer=optimizer)
 
 
@@ -104,6 +134,7 @@ class SRGAN():
         third block of the model
         """
         vgg = VGG19(weights="imagenet")
+        vgg.layers[9].activation = None
         # Set outputs to outputs of last conv. layer in block 3
         # See architecture at: https://github.com/keras-team/keras/blob/master/keras/applications/vgg19.py
         vgg.outputs = [vgg.layers[9].output]
@@ -119,13 +150,29 @@ class SRGAN():
 
         def residual_block(layer_input, filters):
             """Residual block described in paper"""
-            d = Conv2D(filters, kernel_size=3, strides=1, padding='same')(layer_input)
-            d = Activation('relu')(d)
-            d = BatchNormalization(momentum=0.8)(d)
-            d = Conv2D(filters, kernel_size=3, strides=1, padding='same')(d)
-            d = BatchNormalization(momentum=0.8)(d)
-            d = Add()([d, layer_input])
+            concatenated_inputs = layer_input
+
+            for _ in range(3):
+                d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
+                d = LeakyReLU()(d)
+                concatenated_inputs = Concatenate()([concatenated_inputs, d])
+
+            d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
             return d
+
+        def RRDB(layer_input, filters, beta=0.2):
+            d_input = layer_input
+
+            for _ in range(3):
+                d = residual_block(d_input, filters)
+                d = Lambda(lambda x: x * beta)(d)
+                d_input = Add()([d_input, d])
+
+            d_input = Lambda(lambda x: x * beta)(d_input)
+            d = Add()([d_input, layer_input])
+
+            return d
+
 
         def deconv2d(layer_input):
             """Layers used during upsampling"""
@@ -142,13 +189,12 @@ class SRGAN():
         c1 = Activation('relu')(c1)
 
         # Propogate through residual blocks
-        r = residual_block(c1, self.gf)
+        r = RRDB(c1, self.gf)
         for _ in range(self.n_residual_blocks - 1):
-            r = residual_block(r, self.gf)
+            r = RRDB(r, self.gf)
 
         # Post-residual block
         c2 = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
-        c2 = BatchNormalization(momentum=0.8)(c2)
         c2 = Add()([c2, c1])
 
         # Upsampling
@@ -184,34 +230,50 @@ class SRGAN():
 
         d9 = Dense(self.df*16)(d8)
         d10 = LeakyReLU(alpha=0.2)(d9)
-        validity = Dense(1, activation='sigmoid')(d10)
+        d11 = Dense(1)(d10)
 
-        return Model(d0, validity)
+        return Model(d0, d11)
 
     def train(self, epochs, batch_size=1, sample_interval=50):
-
         start_time = datetime.datetime.now()
+
+        def lrate_decay(epoch, lrate):
+            if epoch % int(2e+5) == 0:
+                return lrate * 0.5
+            return lrate
+
+        lrate_callback = LearningRateScheduler(lrate_decay)
+        lrate_callback.set_model(self.combined)
+
+        def named_logs(model, logs):
+            result = {}
+            for l in zip(model.metrics_names, logs):
+                result[l[0]] = l[1]
+            return result
+
+        tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True)
+        tb_callback.set_model(self.combined)
+
 
         for epoch in range(epochs):
 
             # ----------------------
             #  Train Discriminator
             # ----------------------
-
+            lrate_callback.on_epoch_begin(epoch)
             # Sample images and their conditioning counterparts
             imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
 
             # From low res. image generate high res. version
             fake_hr = self.generator.predict(imgs_lr)
+            imgs = np.vstack((imgs_hr, fake_hr))
 
             valid = np.ones((batch_size,) + self.disc_patch)
             fake = np.zeros((batch_size,) + self.disc_patch)
+            y_true = np.vstack((valid, fake))
 
             # Train the discriminators (original images = real / generated = Fake)
-            d_loss_real = self.discriminator.train_on_batch(imgs_hr, valid)
-            d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
-
+            d_loss = self.discriminator.train_on_batch(imgs, y_true)
             # ------------------
             #  Train Generator
             # ------------------
@@ -226,15 +288,19 @@ class SRGAN():
             image_features = self.vgg.predict(imgs_hr)
 
             # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features])
+            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr, imgs_hr])
+            lrate_callback.on_epoch_end(epoch + 1)
+            tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
             elapsed_time = datetime.datetime.now() - start_time
             # Plot the progress
-            print ("%d time: %s" % (epoch, elapsed_time))
+            print ("{} time: {}, loss: {}".format(epoch, elapsed_time, g_loss))
 
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
+
+        tb_callback.on_train_end()
 
     def sample_images(self, epoch):
         os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
@@ -269,5 +335,5 @@ class SRGAN():
             plt.close()
 
 if __name__ == '__main__':
-    gan = SRGAN()
-    gan.train(epochs=30000, batch_size=1, sample_interval=50)
+    gan = SRGAN(sys.argv[1] if len(sys.argv) == 2 else '.')
+    gan.train(epochs=30000, batch_size=4, sample_interval=50)
