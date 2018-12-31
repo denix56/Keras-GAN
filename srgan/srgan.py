@@ -70,7 +70,7 @@ class SRGAN():
         self.hr_shape = (self.hr_height, self.hr_width, self.channels)
 
         # Number of residual blocks in the generator
-        self.n_residual_blocks = 64
+        self.n_residual_blocks = 24
 
         optimizer = Adam(0.0002, 0.5)
 
