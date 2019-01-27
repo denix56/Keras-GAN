@@ -267,8 +267,8 @@ class SRGAN():
         d0 = Input(shape=self.hr_shape)
 
         d1 = d_block(d0, self.df, bn=False, sa=False)
-        d2 = d_block(d1, self.df, strides=2)
-        d3 = d_block(d2, self.df*2)
+        d2 = d_block(d1, self.df, strides=2, sa=False)
+        d3 = d_block(d2, self.df*2, sa=False)
         d4 = d_block(d3, self.df*2, strides=2)
         d5 = d_block(d4, self.df*4)
         d6 = d_block(d5, self.df*4, strides=2)
