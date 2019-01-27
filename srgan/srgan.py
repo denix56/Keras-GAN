@@ -378,7 +378,7 @@ class SRGAN():
 
             print(imgs_hr_pred.shape)
             # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
+            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
