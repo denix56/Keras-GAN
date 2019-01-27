@@ -9,14 +9,13 @@ Instrustion on running the script:
 4. Run the sript using command 'python srgan.py'
 """
 
-from __future__ import print_function, division
 from scipy.special import expit
 
 import keras.backend as K
 from keras.datasets import mnist
 #from keras_contrib.layers.normalization import InstanceNormalization
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate, concatenate, Lambda
-from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add
+from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add, Layer
 from keras.layers.advanced_activations import PReLU, LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.applications import VGG19
@@ -33,6 +32,82 @@ import os
 
 import keras.backend as K
 
+from SpectralNormalizationKeras import DenseSN, ConvSN2D
+
+import sys
+
+import numpy as np
+
+
+def discriminator_loss(y_true, y_pred):
+    shape = K.shape(y_pred)
+    d_real = y_pred[:shape[0]//2, :]
+    d_fake = y_pred[shape[0]//2:, :]
+
+    loss_real = K.mean(K.relu(-1 + d_real))
+    loss_fake = K.mean(K.relu(1 + d_fake))
+    return loss_real + loss_fake
+
+
+def generator_loss(y_true, y_pred):
+    return -K.mean(y_pred)
+
+
+class SelfAttention(Layer):
+    def __init__(self, **kwargs):
+        super(SelfAttention, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+
+        input_dim = input_shape[-1]
+        kernel_shape = (1, 1, input_dim, input_dim // 8)
+
+        self.kernel_f = self.add_weight(name='kernel_f',
+                                      shape=kernel_shape,
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self.kernel_g = self.add_weight(name='kernel_g',
+                                      shape=kernel_shape,
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self.kernel_h = self.add_weight(name='kernel_h',
+                                      shape=(1, 1, input_dim, input_dim),
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self._gamma = self.add_weight(name='scale',
+                                     shape=(1,),
+                                     initializer='zeros',
+                                     trainable=True)
+
+        super(SelfAttention, self).build(input_shape)  # Be sure to call this at the end
+
+    def call(self, x):
+        _, h, w, c = K.int_shape(x)
+
+        b = K.shape(x)[0]
+
+        f = K.reshape(K.conv2d(x, self.kernel_f, padding='same'), (b, h*w, -1))
+        g = K.permute_dimensions(K.reshape(K.conv2d(x, self.kernel_g, padding='same'), (b, h*w, -1)), (0, 2, 1))
+        s = K.batch_dot(f, g)
+        beta = K.softmax(s)
+
+        h = K.reshape(K.conv2d(x, self.kernel_h, padding='same'),
+                                           (b, h*w, c))
+
+        out = K.batch_dot(beta, h)
+
+        out = K.reshape(out, K.shape(x))
+
+        out = self._gamma * out + x
+
+        return out
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 class SmallInitialization(VarianceScaling):
     def __init__(self, scale=0.1):
@@ -42,21 +117,30 @@ class SmallInitialization(VarianceScaling):
     def __call__(self, shape, dtype=None):
         return self.scale * super().__call__(shape, dtype)
 
-def d_rel_avg(x_r, x_f):
-    return K.sigmoid(x_r - K.mean(x_f))
 
 def rel_avg_loss(x_r, x_f):
-    return -K.mean(K.log(K.clip(d_rel_avg(x_r, x_f), K.epsilon(), 1-K.epsilon()))) - \
-           K.mean(K.log(K.clip(1 - d_rel_avg(x_f, x_r), K.epsilon(), 1-K.epsilon())))
+    return K.sigmoid(x_r - K.mean(x_f))
 
 def d_loss(y_real, y_pred):
-    len = K.gather(K.shape(y_pred), 0)
-    x_r = K.gather(y_pred, K.arange(0, len // 2))
-    x_f = K.gather(y_pred, K.arange(start=len // 2, stop=len))
-    return rel_avg_loss(x_r, x_f)
+    batch_size = K.shape(y_pred)[0]
+    x_r = y_pred[:batch_size // 2, :]
+    x_f = y_pred[batch_size // 2:, :]
 
-def g_loss(x_r, x_f):
-    return rel_avg_loss(x_f, x_r)
+    d_ra_real = rel_avg_loss(x_r, x_f)
+    d_ra_fake = rel_avg_loss(x_f, x_r)
+    y_pred = K.concatenate([d_ra_real, d_ra_fake])
+
+    return K.binary_crossentropy(y_real, y_pred)
+
+def g_loss(y_real, y_pred):
+    d_ra_real = rel_avg_loss(y_real, y_pred)
+    d_ra_fake = rel_avg_loss(y_pred, y_real)
+    y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
+
+    y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_real))], axis=0)
+
+    return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
+
 
 class SRGAN():
     def __init__(self, parent_dir):
@@ -287,8 +371,10 @@ class SRGAN():
             # Extract ground truth image features using pre-trained VGG19 model
             image_features = self.vgg.predict(imgs_hr)
 
+            imgs_hr_logits = self.discriminator.predict(imgs_hr)
+
             # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr, imgs_hr])
+            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_logits, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
