@@ -136,8 +136,12 @@ def g_loss(y_real, y_pred):
     d_ra_real = rel_avg_loss(y_real, y_pred)
     d_ra_fake = rel_avg_loss(y_pred, y_real)
 
+    print(d_ra_real, d_ra_fake)
+
     y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_pred))], axis=0)
     y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
+
+    print(y_real, y_pred)
 
     return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
 
@@ -154,7 +158,7 @@ class SRGAN():
         self.hr_shape = (self.hr_height, self.hr_width, self.channels)
 
         # Number of residual blocks in the generator
-        self.n_residual_blocks = 24
+        self.n_residual_blocks = 1
 
         optimizer = Adam(0.0002, 0.5)
 
@@ -338,6 +342,9 @@ class SRGAN():
         tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True)
         tb_callback.set_model(self.combined)
 
+        valid = np.ones((batch_size,) + self.disc_patch)
+        fake = np.zeros((batch_size,) + self.disc_patch)
+        y_true = np.vstack((valid, fake))
 
         for epoch in range(epochs):
 
@@ -351,10 +358,6 @@ class SRGAN():
             # From low res. image generate high res. version
             fake_hr = self.generator.predict(imgs_lr)
             imgs = np.vstack((imgs_hr, fake_hr))
-
-            valid = np.ones((batch_size,) + self.disc_patch)
-            fake = np.zeros((batch_size,) + self.disc_patch)
-            y_true = np.vstack((valid, fake))
 
             # Train the discriminators (original images = real / generated = Fake)
             d_loss = self.discriminator.train_on_batch(imgs, y_true)
