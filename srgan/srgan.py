@@ -234,8 +234,8 @@ class SRGAN():
 
         # Propogate through residual blocks
         r = residual_block(c1, self.gf)
-        for _ in range(self.n_residual_blocks - 1):
-            r = residual_block(r, self.gf)
+        # for _ in range(self.n_residual_blocks - 1):
+        #     r = residual_block(r, self.gf)
 
         # Post-residual block
         c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
