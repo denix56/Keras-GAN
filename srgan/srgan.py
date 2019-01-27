@@ -140,6 +140,13 @@ def g_loss(y_real, y_pred):
 
     real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
     pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
+    with tf.Session() as sess:
+        print sess.run(K.shape(y_real))
+        print sess.run(K.shape(y_pred))
+        print sess.run(K.shape(d_ra_real))
+        print sess.run(K.shape(d_ra_fake))
+        print sess.run(K.shape(real))
+        print sess.run(K.shape(pred))
 
     return K.mean(K.binary_crossentropy(real, pred), axis=-1)
 
