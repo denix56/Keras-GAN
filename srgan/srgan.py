@@ -373,10 +373,10 @@ if __name__ == '__main__':
         parent_dir = sys.argv[1]
 
         if len(sys.argv) > 2:
-            residual_blocks = sys.argv[2]
+            residual_blocks = int(sys.argv[2])
 
             if len(sys.argv) > 3:
-                batch_size = sys.argv[3]
+                batch_size = int(sys.argv[3])
 
     gan = SRGAN(sys.argv[1], residual_blocks = residual_blocks)
     gan.train(epochs=30000, batch_size=batch_size, sample_interval=50)
