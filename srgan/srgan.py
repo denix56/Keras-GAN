@@ -138,10 +138,10 @@ def g_loss(y_real, y_pred):
 
     print(d_ra_real, d_ra_fake)
 
-    y_real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
-    y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
+    real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
+    pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
 
-    return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
+    return K.mean(K.binary_crossentropy(real, pred), axis=-1)
 
 
 class SRGAN():
