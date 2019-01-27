@@ -376,7 +376,7 @@ class SRGAN():
 
             imgs_hr_pred = self.discriminator.predict(imgs_hr)
 
-            print(imgs_hr_pred)
+            print(imgs_hr_pred.shape)
             # Train the generators
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
