@@ -209,10 +209,10 @@ class SRGAN():
             d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(layer_input)
             d = SelfAttention()(d)
             d = Activation('relu')(d)
-            d = BatchNormalization(momentum=0.8)(d)
+          #  d = BatchNormalization(momentum=0.8)(d)
             d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(d)
             d = SelfAttention()(d)
-            d = BatchNormalization(momentum=0.8)(d)
+         #   d = BatchNormalization(momentum=0.8)(d)
             d = Add()([d, layer_input])
             return d
 
@@ -240,7 +240,7 @@ class SRGAN():
         # Post-residual block
         c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
         c2 = SelfAttention()(c2)
-        c2 = BatchNormalization(momentum=0.8)(c2)
+     #   c2 = BatchNormalization(momentum=0.8)(c2)
         c2 = Add()([c2, c1])
 
         # Upsampling
@@ -378,5 +378,6 @@ if __name__ == '__main__':
             if len(sys.argv) > 3:
                 batch_size = int(sys.argv[3])
 
+    print(residual_blocks)
     gan = SRGAN(sys.argv[1], residual_blocks = residual_blocks)
     gan.train(epochs=30000, batch_size=batch_size, sample_interval=50)
