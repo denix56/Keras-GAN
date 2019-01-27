@@ -138,10 +138,10 @@ def g_loss(y_real, y_pred):
 
     # print(d_ra_real, d_ra_fake)
     #
-    # real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
+    #real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
     # pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
 
-    return K.mean(K.binary_crossentropy(y_real, d_ra_fake), axis=-1)
+    return K.mean(K.binary_crossentropy(K.ones(shape=K.shape(d_ra_fake)), d_ra_fake), axis=-1)
 
 
 class SRGAN():
@@ -374,7 +374,6 @@ class SRGAN():
 
             imgs_hr_pred = self.discriminator.predict(imgs_hr)
 
-            print(imgs_hr_pred.shape)
             # Train the generators
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
