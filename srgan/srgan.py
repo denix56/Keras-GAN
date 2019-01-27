@@ -108,8 +108,9 @@ class SelfAttention(Layer):
         return input_shape
 
 class SRGAN():
-    def __init__(self):
+    def __init__(self, parent_dir, residual_blocks):
         # Input shape
+        self.parent_dir = parent_dir
         self.channels = 3
         self.lr_height = 64                 # Low resolution height
         self.lr_width = 64                  # Low resolution width
@@ -119,7 +120,7 @@ class SRGAN():
         self.hr_shape = (self.hr_height, self.hr_width, self.channels)
 
         # Number of residual blocks in the generator
-        self.n_residual_blocks = 16
+        self.n_residual_blocks = residual_blocks
 
         optimizer = Adam(0.0002, 0.5)
 
@@ -136,7 +137,7 @@ class SRGAN():
         # Configure data loader
         self.dataset_name = 'img_align_celeba'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
-                                      parent_dir='.',
+                                      parent_dir=self.parent_dir,
                                       img_res=(self.hr_height, self.hr_width))
 
         # Calculate output shape of D (PatchGAN)
@@ -180,6 +181,7 @@ class SRGAN():
                               loss_weights=[1e-3, 1],
                               optimizer=optimizer)
 
+        self.generator.summary()
         self.combined.summary()
 
 
@@ -363,5 +365,18 @@ class SRGAN():
             plt.close()
 
 if __name__ == '__main__':
-    gan = SRGAN()
-    gan.train(epochs=30000, batch_size=1, sample_interval=50)
+    parent_dir = '.'
+    residual_blocks = 1
+    batch_size = 1
+
+    if len(sys.argv) > 1:
+        parent_dir = sys.argv[1]
+
+        if len(sys.argv) > 2:
+            residual_blocks = sys.argv[2]
+
+            if len(sys.argv) > 3:
+                batch_size = sys.argv[3]
+
+    gan = SRGAN(sys.argv[1], residual_blocks = residual_blocks)
+    gan.train(epochs=30000, batch_size=batch_size, sample_interval=50)
