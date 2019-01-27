@@ -136,7 +136,7 @@ def g_loss(y_real, y_pred):
     d_ra_real = rel_avg_loss(y_real, y_pred)
     d_ra_fake = rel_avg_loss(y_pred, y_real)
 
-    y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_real))], axis=0)
+    y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_pred))], axis=0)
     y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
 
     return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
@@ -371,10 +371,10 @@ class SRGAN():
             # Extract ground truth image features using pre-trained VGG19 model
             image_features = self.vgg.predict(imgs_hr)
 
-            imgs_hr_logits = self.discriminator.predict(imgs_hr)
+            imgs_hr_pred = self.discriminator.predict(imgs_hr)
 
             # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_logits, imgs_hr])
+            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
