@@ -138,10 +138,8 @@ def g_loss(y_real, y_pred):
 
     print(d_ra_real, d_ra_fake)
 
-    y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_pred))], axis=0)
+    y_real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
     y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
-
-    print(y_real, y_pred)
 
     return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
 
@@ -210,9 +208,9 @@ class SRGAN():
         # Discriminator determines validity of generated high res. images
         validity = self.discriminator(fake_hr)
 
-        self.combined = Model([img_lr, img_hr], [validity, fake_features, fake_hr])
-        self.combined.compile(loss=['binary_crossentropy', 'mse', 'mae'],
-                              loss_weights=[1e-3, 1, 1e-2],
+        self.combined = Model([img_lr, img_hr], [validity, fake_features, validity, fake_hr])
+        self.combined.compile(loss=['binary_crossentropy', 'mse', g_loss, 'mae'],
+                              loss_weights=[1e-3, 1, 5e-3, 1e-2],
                               optimizer=optimizer)
 
 
@@ -378,7 +376,7 @@ class SRGAN():
 
             print(imgs_hr_pred.shape)
             # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr])
+            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
