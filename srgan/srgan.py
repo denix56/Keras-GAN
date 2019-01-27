@@ -220,7 +220,6 @@ class SRGAN():
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
             u = ConvSN2D(256, kernel_size=3, strides=1, padding='same')(u)
-            u = SelfAttention()(u)
             u = Activation('relu')(u)
             return u
 
@@ -234,8 +233,8 @@ class SRGAN():
 
         # Propogate through residual blocks
         r = residual_block(c1, self.gf)
-        # for _ in range(self.n_residual_blocks - 1):
-        #     r = residual_block(r, self.gf)
+        for _ in range(self.n_residual_blocks - 1):
+            r = residual_block(r, self.gf)
 
         # Post-residual block
         c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
