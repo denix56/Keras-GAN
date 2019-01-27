@@ -136,6 +136,7 @@ class SRGAN():
         # Configure data loader
         self.dataset_name = 'img_align_celeba'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
+                                      parent_dir='.',
                                       img_res=(self.hr_height, self.hr_width))
 
         # Calculate output shape of D (PatchGAN)
