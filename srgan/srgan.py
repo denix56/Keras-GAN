@@ -30,6 +30,8 @@ from data_loader import DataLoader
 import numpy as np
 import os
 
+import tensorflow as tf
+
 import keras.backend as K
 
 from SpectralNormalizationKeras import DenseSN, ConvSN2D
