@@ -133,10 +133,9 @@ def d_loss(y_real, y_pred):
     return K.mean(K.binary_crossentropy(y_real, y_pred), axis=-1)
 
 def g_loss(y_real, y_pred):
-    print(y_real, y_pred)
     d_ra_real = rel_avg_loss(y_real, y_pred)
     d_ra_fake = rel_avg_loss(y_pred, y_real)
-    
+
     y_real = K.concatenate([K.zeros(shape=K.shape(y_pred)), K.ones(shape=K.shape(y_real))], axis=0)
     y_pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
 
