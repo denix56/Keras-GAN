@@ -30,6 +30,78 @@ import os
 
 import keras.backend as K
 
+from SpectralNormalizationKeras import DenseSN, ConvSN2D
+
+import sys
+
+import numpy as np
+
+
+def discriminator_loss(y_true, y_pred):
+    shape = K.shape(y_pred)
+    d_real = y_pred[:shape[0]//2, :]
+    d_fake = y_pred[shape[0]//2:, :]
+    return -K.mean(K.minimum(0.0, -1 + d_real)) - K.mean(K.minimum(0.0, -1 - d_fake))
+
+
+def generator_loss(y_true, y_pred):
+    return -K.mean(y_pred)
+
+
+class SelfAttention(Layer):
+    def __init__(self, **kwargs):
+        super(SelfAttention, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+
+        input_dim = input_shape[-1]
+        kernel_shape = (1, 1, input_dim, input_dim // 8)
+
+        self.kernel_f = self.add_weight(name='kernel_f',
+                                      shape=kernel_shape,
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self.kernel_g = self.add_weight(name='kernel_g',
+                                      shape=kernel_shape,
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self.kernel_h = self.add_weight(name='kernel_h',
+                                      shape=(1, 1, input_dim, input_dim),
+                                      initializer='uniform',
+                                      trainable=True)
+
+        self._gamma = self.add_weight(name='scale',
+                                     shape=(1,),
+                                     initializer='zeros',
+                                     trainable=True)
+
+        super(SelfAttention, self).build(input_shape)  # Be sure to call this at the end
+
+    def call(self, x):
+        b, h, w, c = K.shape(x)
+
+        f = K.reshape(K.conv2d(x, self.kernel_f, padding='same'), (b, h*w, -1))
+        g = K.permute_dimensions(K.reshape(K.conv2d(x, self.kernel_g, padding='same'), (b, h*w, -1)), (0, 2, 1))
+        s = K.batch_dot(f, g)
+        beta = K.softmax(s)
+
+        h = K.reshape(K.conv2d(x, self.kernel_h, padding='same'),
+                                           (b, h*w, c))
+
+        out = K.batch_dot(beta, h)
+
+        out = K.reshape(out, K.shape(x))
+
+        out = self._gamma * out + x
+
+        return out
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
 class SRGAN():
     def __init__(self):
         # Input shape
@@ -119,10 +191,10 @@ class SRGAN():
 
         def residual_block(layer_input, filters):
             """Residual block described in paper"""
-            d = Conv2D(filters, kernel_size=3, strides=1, padding='same')(layer_input)
+            d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(layer_input)
             d = Activation('relu')(d)
             d = BatchNormalization(momentum=0.8)(d)
-            d = Conv2D(filters, kernel_size=3, strides=1, padding='same')(d)
+            d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(d)
             d = BatchNormalization(momentum=0.8)(d)
             d = Add()([d, layer_input])
             return d
@@ -130,7 +202,7 @@ class SRGAN():
         def deconv2d(layer_input):
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
-            u = Conv2D(256, kernel_size=3, strides=1, padding='same')(u)
+            u = ConvSN2D(256, kernel_size=3, strides=1, padding='same')(u)
             u = Activation('relu')(u)
             return u
 
@@ -138,7 +210,7 @@ class SRGAN():
         img_lr = Input(shape=self.lr_shape)
 
         # Pre-residual block
-        c1 = Conv2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
+        c1 = ConvSN2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
         c1 = Activation('relu')(c1)
 
         # Propogate through residual blocks
@@ -147,7 +219,7 @@ class SRGAN():
             r = residual_block(r, self.gf)
 
         # Post-residual block
-        c2 = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
+        c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
         c2 = BatchNormalization(momentum=0.8)(c2)
         c2 = Add()([c2, c1])
 
@@ -156,7 +228,7 @@ class SRGAN():
         u2 = deconv2d(u1)
 
         # Generate high resolution output
-        gen_hr = Conv2D(self.channels, kernel_size=9, strides=1, padding='same', activation='tanh')(u2)
+        gen_hr = ConvSN2D(self.channels, kernel_size=9, strides=1, padding='same', activation='tanh')(u2)
 
         return Model(img_lr, gen_hr)
 
@@ -164,7 +236,7 @@ class SRGAN():
 
         def d_block(layer_input, filters, strides=1, bn=True):
             """Discriminator layer"""
-            d = Conv2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
+            d = ConvSN2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
             d = LeakyReLU(alpha=0.2)(d)
             if bn:
                 d = BatchNormalization(momentum=0.8)(d)
@@ -182,7 +254,7 @@ class SRGAN():
         d7 = d_block(d6, self.df*8)
         d8 = d_block(d7, self.df*8, strides=2)
 
-        d9 = Dense(self.df*16)(d8)
+        d9 = DenseSN(self.df*16)(d8)
         d10 = LeakyReLU(alpha=0.2)(d9)
         validity = Dense(1, activation='sigmoid')(d10)
 
