@@ -13,9 +13,9 @@ from __future__ import print_function, division
 import scipy
 
 from keras.datasets import mnist
-from keras_contrib.layers.normalization import InstanceNormalization
+#from keras_contrib.layers.normalization import InstanceNormalization
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
-from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add
+from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add, Layer
 from keras.layers.advanced_activations import PReLU, LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.applications import VGG19
@@ -41,7 +41,10 @@ def discriminator_loss(y_true, y_pred):
     shape = K.shape(y_pred)
     d_real = y_pred[:shape[0]//2, :]
     d_fake = y_pred[shape[0]//2:, :]
-    return -K.mean(K.minimum(0.0, -1 + d_real)) - K.mean(K.minimum(0.0, -1 - d_fake))
+
+    loss_real = K.mean(K.relu(-1 + d_real))
+    loss_fake = K.mean(K.relu(1 + d_fake))
+    return loss_real + loss_fake
 
 
 def generator_loss(y_true, y_pred):
@@ -81,7 +84,9 @@ class SelfAttention(Layer):
         super(SelfAttention, self).build(input_shape)  # Be sure to call this at the end
 
     def call(self, x):
-        b, h, w, c = K.shape(x)
+        _, h, w, c = K.int_shape(x)
+
+        b = K.shape(x)[0]
 
         f = K.reshape(K.conv2d(x, self.kernel_f, padding='same'), (b, h*w, -1))
         g = K.permute_dimensions(K.reshape(K.conv2d(x, self.kernel_g, padding='same'), (b, h*w, -1)), (0, 2, 1))
@@ -126,6 +131,8 @@ class SRGAN():
             optimizer=optimizer,
             metrics=['accuracy'])
 
+        self.vgg.summary()
+
         # Configure data loader
         self.dataset_name = 'img_align_celeba'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
@@ -141,9 +148,12 @@ class SRGAN():
 
         # Build and compile the discriminator
         self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='mse',
+        self.discriminator.compile(loss=['mse', discriminator_loss],
+            loss_weights=[1e-3, 1],
             optimizer=optimizer,
             metrics=['accuracy'])
+
+        self.discriminator.summary()
 
         # Build the generator
         self.generator = self.build_generator()
@@ -162,12 +172,14 @@ class SRGAN():
         self.discriminator.trainable = False
 
         # Discriminator determines validity of generated high res. images
-        validity = self.discriminator(fake_hr)
+        validity = self.discriminator(fake_hr)[0]
 
         self.combined = Model([img_lr, img_hr], [validity, fake_features])
-        self.combined.compile(loss=['binary_crossentropy', 'mse'],
+        self.combined.compile(loss=[generator_loss, 'mse'],
                               loss_weights=[1e-3, 1],
                               optimizer=optimizer)
+
+        self.combined.summary()
 
 
     def build_vgg(self):
@@ -192,9 +204,11 @@ class SRGAN():
         def residual_block(layer_input, filters):
             """Residual block described in paper"""
             d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(layer_input)
+            d = SelfAttention()(d)
             d = Activation('relu')(d)
             d = BatchNormalization(momentum=0.8)(d)
             d = ConvSN2D(filters, kernel_size=3, strides=1, padding='same')(d)
+            d = SelfAttention()(d)
             d = BatchNormalization(momentum=0.8)(d)
             d = Add()([d, layer_input])
             return d
@@ -203,6 +217,7 @@ class SRGAN():
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
             u = ConvSN2D(256, kernel_size=3, strides=1, padding='same')(u)
+            u = SelfAttention()(u)
             u = Activation('relu')(u)
             return u
 
@@ -211,6 +226,7 @@ class SRGAN():
 
         # Pre-residual block
         c1 = ConvSN2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
+        c1 = SelfAttention()(c1)
         c1 = Activation('relu')(c1)
 
         # Propogate through residual blocks
@@ -220,6 +236,7 @@ class SRGAN():
 
         # Post-residual block
         c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
+        c2 = SelfAttention()(c2)
         c2 = BatchNormalization(momentum=0.8)(c2)
         c2 = Add()([c2, c1])
 
@@ -237,6 +254,7 @@ class SRGAN():
         def d_block(layer_input, filters, strides=1, bn=True):
             """Discriminator layer"""
             d = ConvSN2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
+            d = SelfAttention()(d)
             d = LeakyReLU(alpha=0.2)(d)
             if bn:
                 d = BatchNormalization(momentum=0.8)(d)
@@ -258,11 +276,15 @@ class SRGAN():
         d10 = LeakyReLU(alpha=0.2)(d9)
         validity = Dense(1, activation='sigmoid')(d10)
 
-        return Model(d0, validity)
+        return Model(d0, [validity, validity])
 
     def train(self, epochs, batch_size=1, sample_interval=50):
 
         start_time = datetime.datetime.now()
+
+        valid = np.ones((batch_size,) + self.disc_patch)
+        fake = np.zeros((batch_size,) + self.disc_patch)
+        labels = np.concatenate((valid, fake))
 
         for epoch in range(epochs):
 
@@ -276,13 +298,12 @@ class SRGAN():
             # From low res. image generate high res. version
             fake_hr = self.generator.predict(imgs_lr)
 
-            valid = np.ones((batch_size,) + self.disc_patch)
-            fake = np.zeros((batch_size,) + self.disc_patch)
+            imgs = np.concatenate((imgs_hr, fake_hr))
 
             # Train the discriminators (original images = real / generated = Fake)
-            d_loss_real = self.discriminator.train_on_batch(imgs_hr, valid)
-            d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+            d_loss = self.discriminator.train_on_batch(imgs, labels)
+            #d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
+            #d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
             # ------------------
             #  Train Generator
@@ -292,7 +313,7 @@ class SRGAN():
             imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
 
             # The generators want the discriminators to label the generated images as real
-            valid = np.ones((batch_size,) + self.disc_patch)
+            #valid = np.ones((batch_size,) + self.disc_patch)
 
             # Extract ground truth image features using pre-trained VGG19 model
             image_features = self.vgg.predict(imgs_hr)
