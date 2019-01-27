@@ -210,9 +210,9 @@ class SRGAN():
         # Discriminator determines validity of generated high res. images
         validity = self.discriminator(fake_hr)
 
-        self.combined = Model([img_lr, img_hr], [validity, fake_features, validity, fake_hr])
-        self.combined.compile(loss=['binary_crossentropy', 'mse', g_loss, 'mae'],
-                              loss_weights=[1e-3, 1, 5e-3, 1e-2],
+        self.combined = Model([img_lr, img_hr], [validity, fake_features, fake_hr])
+        self.combined.compile(loss=['binary_crossentropy', 'mse', 'mae'],
+                              loss_weights=[1e-3, 1, 1e-2],
                               optimizer=optimizer)
 
 
