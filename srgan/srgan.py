@@ -303,7 +303,7 @@ class SRGAN():
             imgs = np.concatenate((imgs_hr, fake_hr))
 
             # Train the discriminators (original images = real / generated = Fake)
-            d_loss = self.discriminator.train_on_batch(imgs, labels)
+            d_loss = self.discriminator.train_on_batch(imgs, [labels, labels])
             #d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
             #d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
