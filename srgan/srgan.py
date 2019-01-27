@@ -253,10 +253,11 @@ class SRGAN():
 
     def build_discriminator(self):
 
-        def d_block(layer_input, filters, strides=1, bn=True):
+        def d_block(layer_input, filters, strides=1, bn=True, sa=True):
             """Discriminator layer"""
             d = ConvSN2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
-            d = SelfAttention()(d)
+            if sa:
+                d = SelfAttention()(d)
             d = LeakyReLU(alpha=0.2)(d)
             if bn:
                 d = BatchNormalization(momentum=0.8)(d)
@@ -265,7 +266,7 @@ class SRGAN():
         # Input img
         d0 = Input(shape=self.hr_shape)
 
-        d1 = d_block(d0, self.df, bn=False)
+        d1 = d_block(d0, self.df, bn=False, sa=False)
         d2 = d_block(d1, self.df, strides=2)
         d3 = d_block(d2, self.df*2)
         d4 = d_block(d3, self.df*2, strides=2)
