@@ -136,12 +136,15 @@ def g_loss(y_real, y_pred):
     d_ra_real = rel_avg_loss(y_real, y_pred)
     d_ra_fake = rel_avg_loss(y_pred, y_real)
 
-    # print(d_ra_real, d_ra_fake)
-    #
-    #real = K.concatenate([K.zeros(shape=K.shape(d_ra_real)), K.ones(shape=K.shape(d_ra_fake))], axis=0)
-    # pred = K.concatenate([d_ra_real, d_ra_fake], axis=0)
+    shape = K.shape(y_pred)
 
-    return K.mean(K.binary_crossentropy(K.ones(shape=K.shape(d_ra_fake)), d_ra_fake), axis=-1)
+    zeros = K.zeros(shape=shape)
+    ones = K.ones(shape=shape)
+
+    real_loss = K.binary_crossentropy(zeros, d_ra_real)
+    fake_loss = K.binary_crossentropy(ones, d_ra_fake)
+
+    return K.mean(real_loss + fake_loss, axis=-1)
 
 
 class SRGAN():
@@ -156,7 +159,7 @@ class SRGAN():
         self.hr_shape = (self.hr_height, self.hr_width, self.channels)
 
         # Number of residual blocks in the generator
-        self.n_residual_blocks = 1
+        self.n_residual_blocks = 13
 
         optimizer = Adam(0.0002, 0.5)
 
