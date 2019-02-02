@@ -22,7 +22,7 @@ from keras.applications import VGG19
 from keras.models import Sequential, Model
 from keras.initializers import VarianceScaling
 from keras.optimizers import Adam
-from keras.callbacks import LearningRateScheduler, History, TensorBoard
+from keras.callbacks import LearningRateScheduler, History, TensorBoard, ModelCheckpoint
 import datetime
 import matplotlib.pyplot as plt
 import sys
@@ -340,8 +340,10 @@ class SRGAN():
                 result[l[0]] = l[1]
             return result
 
-        tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True)
+        tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True, write_graph=True, histogram_freq=1)
         tb_callback.set_model(self.combined)
+
+        checkpoint_cb = ModelCheckpoint('./checkpoints', save_best_only=True, period=50)
 
         valid = np.ones((batch_size,) + self.disc_patch)
         fake = np.zeros((batch_size,) + self.disc_patch)
@@ -380,6 +382,7 @@ class SRGAN():
             # Train the generators
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             lrate_callback.on_epoch_end(epoch + 1)
+            checkpoint_cb.on_epoch_end(epoch)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
             elapsed_time = datetime.datetime.now() - start_time
