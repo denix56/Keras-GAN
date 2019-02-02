@@ -340,6 +340,8 @@ class SRGAN():
                 result[l[0]] = l[1]
             return result
 
+        print('Setup callbacks')
+
         tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True, write_graph=True, histogram_freq=1)
         tb_callback.set_model(self.combined)
 
@@ -381,13 +383,13 @@ class SRGAN():
 
             # Train the generators
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
+            print ("{} time: {}, loss: {}".format(epoch, elapsed_time, g_loss))
             lrate_callback.on_epoch_end(epoch + 1)
             checkpoint_cb.on_epoch_end(epoch)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
             elapsed_time = datetime.datetime.now() - start_time
             # Plot the progress
-            print ("{} time: {}, loss: {}".format(epoch, elapsed_time, g_loss))
 
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:
