@@ -429,4 +429,4 @@ class SRGAN():
 
 if __name__ == '__main__':
     gan = SRGAN(sys.argv[1] if len(sys.argv) == 2 else '.')
-    gan.train(epochs=30000, batch_size=4, sample_interval=50)
+    gan.train(epochs=30000, batch_size=4, sample_interval=10)
