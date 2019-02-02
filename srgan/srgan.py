@@ -242,11 +242,11 @@ class SRGAN():
             concatenated_inputs = layer_input
 
             for _ in range(4):
-                d = ConvSN2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
+                d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
                 d = LeakyReLU()(d)
                 concatenated_inputs = Concatenate()([concatenated_inputs, d])
 
-            d = ConvSN2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
+            d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
             return d
 
         def RRDB(layer_input, filters, beta=0.2):
@@ -266,7 +266,7 @@ class SRGAN():
         def deconv2d(layer_input):
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
-            u = ConvSN2D(256, kernel_size=3, strides=1, padding='same')(u)
+            u = Conv2D(256, kernel_size=3, strides=1, padding='same')(u)
             u = Activation('relu')(u)
             return u
 
@@ -274,7 +274,7 @@ class SRGAN():
         img_lr = Input(shape=self.lr_shape)
 
         # Pre-residual block
-        c1 = ConvSN2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
+        c1 = Conv2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
         c1 = Activation('relu')(c1)
 
         # Propogate through residual blocks
@@ -283,7 +283,7 @@ class SRGAN():
             r = RRDB(r, self.gf)
 
         # Post-residual block
-        c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
+        c2 = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
         c2 = Add()([c2, c1])
 
         # Upsampling
