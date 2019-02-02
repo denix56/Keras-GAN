@@ -342,7 +342,7 @@ class SRGAN():
 
         print('Setup callbacks')
 
-        tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True, write_graph=True, histogram_freq=1)
+        tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True, histogram_freq=1)
         tb_callback.set_model(self.combined)
 
         #checkpoint_cb = ModelCheckpoint('./checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', save_best_only=True, period=50)
