@@ -345,7 +345,7 @@ class SRGAN():
         tb_callback = TensorBoard(batch_size=batch_size, write_grads=True, write_images=True, write_graph=True, histogram_freq=1)
         tb_callback.set_model(self.combined)
 
-        checkpoint_cb = ModelCheckpoint('./checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', save_best_only=True, period=50)
+        #checkpoint_cb = ModelCheckpoint('./checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', save_best_only=True, period=50)
 
         valid = np.ones((batch_size,) + self.disc_patch)
         fake = np.zeros((batch_size,) + self.disc_patch)
@@ -385,7 +385,7 @@ class SRGAN():
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
             print ("{} time: {}, loss: {}".format(epoch, elapsed_time, g_loss))
             lrate_callback.on_epoch_end(epoch + 1)
-            checkpoint_cb.on_epoch_end(epoch)
+            #checkpoint_cb.on_epoch_end(epoch)
             tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
 
             elapsed_time = datetime.datetime.now() - start_time
