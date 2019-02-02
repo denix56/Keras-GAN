@@ -241,12 +241,13 @@ class SRGAN():
             """Residual block described in paper"""
             concatenated_inputs = layer_input
 
-            for _ in range(3):
-                d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
+            for _ in range(4):
+                d = ConvSN2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1,
+                             padding='same')(concatenated_inputs)
                 d = LeakyReLU()(d)
                 concatenated_inputs = Concatenate()([concatenated_inputs, d])
 
-            d = Conv2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
+            d = ConvSN2D(filters, kernel_initializer=SmallInitialization(), kernel_size=3, strides=1, padding='same')(concatenated_inputs)
             return d
 
         def RRDB(layer_input, filters, beta=0.2):
@@ -266,7 +267,7 @@ class SRGAN():
         def deconv2d(layer_input):
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
-            u = Conv2D(256, kernel_size=3, strides=1, padding='same')(u)
+            u = ConvSN2D(256, kernel_size=3, strides=1, padding='same')(u)
             u = Activation('relu')(u)
             return u
 
@@ -274,7 +275,7 @@ class SRGAN():
         img_lr = Input(shape=self.lr_shape)
 
         # Pre-residual block
-        c1 = Conv2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
+        c1 = ConvSN2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
         c1 = Activation('relu')(c1)
 
         # Propogate through residual blocks
@@ -283,7 +284,7 @@ class SRGAN():
             r = RRDB(r, self.gf)
 
         # Post-residual block
-        c2 = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
+        c2 = ConvSN2D(64, kernel_size=3, strides=1, padding='same')(r)
         c2 = Add()([c2, c1])
 
         # Upsampling
@@ -299,7 +300,7 @@ class SRGAN():
 
         def d_block(layer_input, filters, strides=1, bn=True):
             """Discriminator layer"""
-            d = Conv2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
+            d = ConvSN2D(filters, kernel_size=3, strides=strides, padding='same')(layer_input)
             d = LeakyReLU(alpha=0.2)(d)
             if bn:
                 d = BatchNormalization(momentum=0.8)(d)
@@ -317,7 +318,7 @@ class SRGAN():
         d7 = d_block(d6, self.df*8)
         d8 = d_block(d7, self.df*8, strides=2)
 
-        d9 = Dense(self.df*16)(d8)
+        d9 = DenseSN(self.df*16)(d8)
         d10 = LeakyReLU(alpha=0.2)(d9)
         d11 = Dense(1)(d10)
 
