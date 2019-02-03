@@ -22,7 +22,7 @@ from keras.applications import VGG19
 from keras.models import Sequential, Model
 from keras.initializers import VarianceScaling
 from keras.optimizers import Adam
-from keras.callbacks import LearningRateScheduler, History, TensorBoard, ModelCheckpoint
+from keras.callbacks import LearningRateScheduler, History, TensorBoard, ModelCheckpoint, Callback
 import datetime
 import matplotlib.pyplot as plt
 import sys
@@ -32,11 +32,63 @@ import os
 
 import keras.backend as K
 
+import tensorflow as tf
+
 from SpectralNormalizationKeras import DenseSN, ConvSN2D
 
 import sys
 
 import numpy as np
+
+def make_image(images, name):
+    """
+    Convert an numpy representation image to Image protobuf.
+    Copied from https://github.com/lanpa/tensorboard-pytorch/
+    """
+    tensor = tf.convert_to_tensor(images)
+    return tf.summary.image(name, tensor, max_outputs=2, family=name)
+
+class TensorBoardImage(Callback):
+    def __init__(self, model, loader, batch_size, log_dir):
+        super().__init__()
+        self.model = model
+        self.data_loader = loader
+        self.batch_size = batch_size
+        self.lr_imgs = tf.placeholder(tf.float32, shape=self.model.layers[0].input_shape)
+        self.imgs = tf.placeholder(tf.float32, shape=self.model.layers[-1].output_shape)
+        self.real_lr = tf.summary.image('Real low-res', self.lr_imgs, max_outputs=2, family='Real low-res')
+        self.generated = tf.summary.image('Generated', self.imgs, max_outputs=2, family='Generated')
+        self.real_hr = tf.summary.image('Real high-res', self.imgs, max_outputs=2, family='Real high-res')
+
+        self.writer = tf.summary.FileWriter(log_dir)
+
+    def on_epoch_end(self, epoch, logs={}):
+        # Load image
+        # Do something to the image
+
+        imgs_hr, imgs_lr = self.data_loader.load_data(batch_size=self.batch_size, is_testing=True)
+        fake_hr = self.model.predict(imgs_lr)
+
+        # Rescale images 0 - 1
+        imgs_lr = 0.5 * imgs_lr + 0.5
+        fake_hr = 0.5 * fake_hr + 0.5
+        imgs_hr = 0.5 * imgs_hr + 0.5
+
+        sess = K.get_session()
+
+        summ = sess.run(self.real_lr, {self.lr_imgs: imgs_lr})
+        self.writer.add_summary(summ, epoch)
+
+        summ = sess.run(self.generated, {self.imgs: fake_hr})
+        self.writer.add_summary(summ, epoch)
+
+        summ = sess.run(self.real_hr, {self.imgs: imgs_hr})
+        self.writer.add_summary(summ, epoch)
+
+        self.writer.flush()
+
+    def on_train_end(self, logs=None):
+        self.writer.close()
 
 
 def discriminator_loss(y_true, y_pred):
@@ -263,19 +315,17 @@ class SRGAN():
             return d
 
 
-        def deconv2d(layer_input):
+        def deconv2d(layer_input, activation = 'relu'):
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
-            u = Conv2D(256, kernel_size=3, strides=1, padding='same')(u)
-            u = Activation('relu')(u)
+            u = Conv2D(256, kernel_size=3, strides=1, padding='same', activation=activation)(u)
             return u
 
         # Low resolution image input
         img_lr = Input(shape=self.lr_shape)
 
         # Pre-residual block
-        c1 = Conv2D(64, kernel_size=9, strides=1, padding='same')(img_lr)
-        c1 = Activation('relu')(c1)
+        c1 = Conv2D(64, kernel_size=3, strides=1, padding='same')(img_lr)
 
         # Propogate through residual blocks
         r = RRDB(c1, self.gf)
@@ -288,7 +338,7 @@ class SRGAN():
 
         # Upsampling
         u1 = deconv2d(c2)
-        u2 = deconv2d(u1)
+        u2 = deconv2d(u1, None)
 
         # Generate high resolution output
         gen_hr = Conv2D(self.channels, kernel_size=9, strides=1, padding='same', activation='tanh')(u2)
@@ -327,7 +377,7 @@ class SRGAN():
         start_time = datetime.datetime.now()
 
         def lrate_decay(epoch, lrate):
-            if epoch % int(2e+5) == 0:
+            if (epoch+1) % int(2e+5) == 0:
                 return lrate * 0.5
             return lrate
 
@@ -340,8 +390,14 @@ class SRGAN():
                 result[l[0]] = l[1]
             return result
 
-        tb_callback = TensorBoard(batch_size=batch_size, write_grads=False, write_images=True, write_graph=True)
+
+        tb_callback = TensorBoard(log_dir='./logs/generator_values', batch_size=batch_size, write_grads=False, write_images=True, write_graph=True)
         tb_callback.set_model(self.combined)
+
+        tb_callback_disc = TensorBoard(log_dir='./logs/discriminator_values', batch_size=batch_size, write_grads=False, write_images=False, write_graph=True)
+        tb_callback_disc.set_model(self.discriminator)
+
+        tbi_callback = TensorBoardImage(self.generator, self.data_loader, batch_size, log_dir='./logs/images')
 
         #checkpoint_cb = ModelCheckpoint('./checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', save_best_only=True, period=50)
 
@@ -381,10 +437,12 @@ class SRGAN():
 
             # Train the generators
             g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features, imgs_hr_pred, imgs_hr])
-            lrate_callback.on_epoch_end(epoch + 1)
+            lrate_callback.on_epoch_end(epoch)
+            loss_dict = dict(zip(['total loss', 'binary_crossentropy loss', 'mean squared error loss',
+                                                     'relativistic loss', 'mean absolute error loss'], g_loss))
             #checkpoint_cb.on_epoch_end(epoch)
-            tb_callback.on_epoch_end(epoch, named_logs(self.combined, g_loss))
-
+            tb_callback.on_epoch_end(epoch, loss_dict)
+            tb_callback_disc.on_epoch_end(epoch, named_logs(self.discriminator, d_loss))
             elapsed_time = datetime.datetime.now() - start_time
             # Plot the progress
             print ("{} time: {}, loss: {}".format(epoch, elapsed_time, g_loss))
@@ -392,8 +450,11 @@ class SRGAN():
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
+                tbi_callback.on_epoch_end(epoch)
 
+        tb_callback_disc.on_train_end()
         tb_callback.on_train_end()
+        tbi_callback.on_train_end()
 
     def sample_images(self, epoch):
         os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
@@ -429,4 +490,4 @@ class SRGAN():
 
 if __name__ == '__main__':
     gan = SRGAN(sys.argv[1] if len(sys.argv) == 2 else '.')
-    gan.train(epochs=30000, batch_size=4, sample_interval=10)
+    gan.train(epochs=50000, batch_size=4, sample_interval=10)
